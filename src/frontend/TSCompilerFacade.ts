@@ -171,7 +171,7 @@ export class TSCompilerFacade implements IGestorAST {
     }
 
     private expr(e: ts.Expression, sf: ts.SourceFile): Expr {
-        if (ts.isParenthesizedExpression(e)) return this.expr(e.expression, sf);
+        if (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e)) return this.expr(e.expression, sf);
         if (ts.isNumericLiteral(e)) return { tipo: 'num', valor: Number(e.text) };
 
         // Soporte para literales negativos (ej. -5)
