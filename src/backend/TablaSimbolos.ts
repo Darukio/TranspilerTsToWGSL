@@ -18,6 +18,8 @@ const RESERVADAS = new Set([
 
 export class TablaSimbolos {
   private simbolos = new Map<string, SimboloInfo>();
+  // Pila de ámbitos: cada `for` abre uno y al cerrarlo se olvidan sus variables (dos bucles hermanos pueden declarar la misma).
+  private ambitos: string[][] = [];
 
   registrar(nombre: string, info: SimboloInfo): void {
     if (RESERVADAS.has(nombre)) {
@@ -27,6 +29,15 @@ export class TablaSimbolos {
       throw new Error(`Símbolo ya declarado: "${nombre}"`);
     }
     this.simbolos.set(nombre, info);
+    this.ambitos[this.ambitos.length - 1]?.push(nombre);
+  }
+
+  abrirAmbito(): void {
+    this.ambitos.push([]);
+  }
+
+  cerrarAmbito(): void {
+    for (const nombre of this.ambitos.pop() ?? []) this.simbolos.delete(nombre);
   }
 
   obtener(nombre: string): SimboloInfo {

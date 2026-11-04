@@ -4,6 +4,8 @@ import type { KernelIR } from '../ir/ir-contract.js';
 export interface Shader {
     nombre: string;
     wgsl: string;
+    /** Optimizaciones que el emisor aplicó a este kernel (vacío = kernel ingenuo). */
+    optimizaciones: string[];
 }
 
 export class ContextoPipeline {

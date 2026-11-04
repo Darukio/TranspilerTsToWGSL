@@ -8,7 +8,9 @@ export class FaseBackEnd implements IFase {
     for (const irRaw of ctx.kernels) {
       const kernel = KernelIRSchema.parse(irRaw);
       try {
-        ctx.shaders.push({ nombre: kernel.name, wgsl: new EmisorWGSL().emitir(kernel) });
+        const emisor = new EmisorWGSL();
+        const wgsl = emisor.emitir(kernel);
+        ctx.shaders.push({ nombre: kernel.name, wgsl, optimizaciones: emisor.optimizaciones });
       } catch (error) {
         ctx.diagnosticos.push({
           fase: "backend",
