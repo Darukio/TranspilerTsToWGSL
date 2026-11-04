@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benchmark CPU vs GPU</title>
+<style>
+  :root {
+    --fondo: #f6f7f9; --tarjeta: #ffffff; --texto: #1b1f24; --suave: #5b6570; --borde: #d8dde3;
+    --cpu: #b87400; --cpum: #7b4fbf; --gpu: #0072b2; --cmp: #007a5a; --alerta: #b42318; --alerta-fondo: #fdeceb; --ok: #067647;
+    --subida: #56b4e9; --sync: #8a939c; --lectura: #cc79a7;
+    --aviso: #7a4e00; --aviso-fondo: #fff1cc;
+  }
+  :root:not([data-theme="light"]) { color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fondo: #0f1318; --tarjeta: #171c23; --texto: #e7ebf0; --suave: #9aa4af; --borde: #2b3440;
+      --cpu: #f0b441; --cpum: #b79cf0; --gpu: #5cb4f0; --cmp: #3fcf9f; --alerta: #ff8a80; --alerta-fondo: #3a1714; --ok: #5fd39a;
+      --aviso: #f0b441; --aviso-fondo: #33270a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fondo); color: var(--texto); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 4px; }
+  .suave { color: var(--suave); }
+  .tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 10px; padding: 16px; margin-top: 16px; }
+  .insignia { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; border: 1px solid currentColor; }
+  .insignia.hw { color: var(--ok); } .insignia.sw { color: var(--alerta); }
+  .alerta { background: var(--alerta-fondo); color: var(--alerta); border: 1px solid var(--alerta); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-weight: 600; }
+  .controles { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: var(--suave); }
+  input[type=number] { width: 90px; padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px; background: var(--fondo); color: var(--texto); font: inherit; }
+  .casos { display: flex; gap: 14px; flex-wrap: wrap; } .casos label { flex-direction: row; align-items: center; gap: 6px; color: var(--texto); font-size: .95rem; }
+  button { padding: 8px 18px; border: 0; border-radius: 6px; background: var(--gpu); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: progress; }
+  button.secundario { background: transparent; color: var(--texto); border: 1px solid var(--borde); }
+  button[hidden], #avance[hidden] { display: none; }
+  .casilla { color: var(--texto); } .casilla small { color: var(--suave); }
+  progress { width: 100%; height: 14px; accent-color: var(--gpu); margin-top: 12px; }
+  #detalle { font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .leyenda { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .85rem; margin: 6px 0 2px; }
+  .leyenda span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--suave); font-size: 11px; font-family: inherit; }
+  .grid { stroke: var(--borde); stroke-width: 1; } .eje { stroke: var(--suave); stroke-width: 1; }
+  .tabla-caja { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: .85rem; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--borde); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; } th { color: var(--suave); font-weight: 600; }
+  .gana-gpu { color: var(--ok); font-weight: 600; } .gana-cpu { color: var(--alerta); font-weight: 600; }
+  .barra { display: flex; height: 22px; border-radius: 5px; overflow: hidden; margin-top: 6px; background: var(--borde); }
+  .barra div { min-width: 2px; }
+  .aviso { background: var(--aviso-fondo); color: var(--aviso); border: 1px solid var(--aviso); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: .88rem; }
+  td.dudoso { color: var(--aviso); font-weight: 600; }
+  th[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+  dl.glosario { display: grid; grid-template-columns: minmax(150px, 230px) 1fr; gap: 10px 18px; margin: 12px 0 0; }
+  dl.glosario dt { font-weight: 600; } dl.glosario dd { margin: 0; color: var(--suave); }
+  @media (max-width: 640px) { dl.glosario { grid-template-columns: 1fr; gap: 2px; } dl.glosario dd { margin-bottom: 10px; } }
+  .nota { font-size: .8rem; color: var(--suave); margin-top: 10px; }
+  #estado { min-height: 1.5em; margin-top: 10px; }
+  .error { color: var(--alerta); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Benchmark CPU vs GPU</h1>
+  <div id="dispositivo" class="suave">Detectando dispositivo…</div>
+  <div id="aviso"></div>
+
+  <section class="tarjeta">
+    <div class="controles">
+      <div class="casos" id="casos" role="group" aria-label="Casos a medir"></div>
+      <label>Repeticiones<input id="reps" type="number" min="1" max="100" value="15"></label>
+      <label>Calentamiento<input id="calentamiento" type="number" min="0" max="20" value="3"></label>
+      <label>Tamaño máximo (opcional)<input id="max" type="number" min="1" placeholder="sin límite"></label>
+      <label class="casilla"><span><input id="rapido" type="checkbox"> Modo rápido</span><small>5 repeticiones, sin k=1000</small></label>
+      <button id="ejecutar" type="button">Ejecutar</button>
+      <button id="cancelar" type="button" class="secundario" hidden>Cancelar</button>
+    </div>
+    <div id="avance" hidden>
+      <progress id="barra-avance" max="1" value="0" aria-label="Avance del benchmark"></progress>
+      <div id="detalle" class="suave"></div>
+    </div>
+    <div id="estado" class="suave" role="status" aria-live="polite"></div>
+  </section>
+
+  <div id="resultados"></div>
+
+  <section class="tarjeta" aria-labelledby="titulo-glosario">
+    <h2 id="titulo-glosario">Glosario</h2>
+    <div class="suave">Qué significa cada columna y cada término. Los encabezados de las tablas también muestran una definición breve al pasar el cursor.</div>
+    <dl id="glosario" class="glosario"></dl>
+  </section>
+
+  <p class="nota"><strong>Método.</strong> Mediana de las repeticiones, tras descartar el calentamiento (la CPU, al menos 5 corridas para que el JIT optimice).
+    Las fases no se mezclan: primero la CPU sola, después la GPU. La GPU compite contra la <em>mejor</em> de dos CPU: la función original
+    en un hilo, y el mismo código repartido entre todos los hilos (en matrices y matmul, con una versión por filas escrita a mano —en matmul, además, con bloqueo de caché— porque la original no se puede
+    cortar; el benchmark comprueba que ambas dan resultados idénticos y se detiene si no). Si una corrida de CPU de 1 hilo tarda más de 0,4 s, esa serie usa 3 repeticiones. «GPU total» incluye subir los
+    datos, ejecutar y leer; «GPU cómputo» es solo el pass, medido por la GPU con <code>timestamp-query</code> en corridas aparte. La GPU
+    trabaja en f32 y la CPU en f64: por eso se informa el error máximo. Pasá el cursor por una celda para ver mínimo y máximo.</p>
+</main>
+
+<script>
+const SVG = 'http://www.w3.org/2000/svg';
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, hijos = []) => {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  for (const h of [].concat(hijos)) e.append(h);
+  return e;
+};
+const sv = (tag, attrs = {}, texto) => {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  if (texto !== undefined) e.textContent = texto;
+  return e;
+};
+const ms = (v) => (v === undefined ? '—' : v < 1 ? v.toFixed(3) : v < 100 ? v.toFixed(2) : v.toFixed(0)) + (v === undefined ? '' : ' ms');
+const num = (n) => n.toLocaleString('es-AR');
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+async function pedir(url) {
+  const r = await fetch(url);
+  const cuerpo = await r.json();
+  if (!r.ok) throw new Error(cuerpo.error || `Error ${r.status}`);
+  return cuerpo;
+}
+
+// ---- Gráfico de líneas log-log ----
+function graficoLineas(series, ejeX) {
+  const W = 760, H = 320, m = { i: 62, d: 16, s: 14, b: 44 };
+  const puntos = series.flatMap((s) => s.puntos);
+  const xs = puntos.map((p) => Math.log10(p.x)), ys = puntos.map((p) => Math.log10(Math.max(p.y, 1e-4)));
+  const x0 = Math.floor(Math.min(...xs)), x1 = Math.ceil(Math.max(...xs));
+  const y0 = Math.floor(Math.min(...ys)), y1 = Math.max(Math.ceil(Math.max(...ys)), y0 + 1);
+  const X = (v) => m.i + ((Math.log10(v) - x0) / Math.max(x1 - x0, 1)) * (W - m.i - m.d);
+  const Y = (v) => H - m.b - ((Math.log10(Math.max(v, 1e-4)) - y0) / (y1 - y0)) * (H - m.b - m.s);
+
+  const g = sv('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Tiempo en milisegundos según el tamaño del problema, escala logarítmica' });
+  for (let e = y0; e <= y1; e++) {
+    const y = Y(10 ** e);
+    g.append(sv('line', { x1: m.i, x2: W - m.d, y1: y, y2: y, class: 'grid' }));
+    g.append(sv('text', { x: m.i - 8, y: y + 4, 'text-anchor': 'end' }, ms(10 ** e)));
+  }
+  for (let e = x0; e <= x1; e++) {
+    const x = X(10 ** e);
+    g.append(sv('line', { x1: x, x2: x, y1: m.s, y2: H - m.b, class: 'grid' }));
+    g.append(sv('text', { x, y: H - m.b + 16, 'text-anchor': 'middle' }, num(10 ** e)));
+  }
+  g.append(sv('line', { x1: m.i, x2: W - m.d, y1: H - m.b, y2: H - m.b, class: 'eje' }));
+  g.append(sv('text', { x: (m.i + W - m.d) / 2, y: H - 6, 'text-anchor': 'middle' }, ejeX));
+
+  for (const s of series) {
+    const color = css(s.color);
+    const pts = s.puntos.map((p) => `${X(p.x)},${Y(p.y)}`).join(' ');
+    g.append(sv('polyline', { points: pts, fill: 'none', stroke: color, 'stroke-width': 2.2, 'stroke-dasharray': s.trazo || '' }));
+    for (const p of s.puntos) {
+      const c = sv('circle', { cx: X(p.x), cy: Y(p.y), r: 4, fill: color });
+      c.append(sv('title', {}, `${s.nombre} · ${num(p.x)} elementos · ${ms(p.y)}`));
+      g.append(c);
+    }
+  }
+  return g;
+}
+
+function leyenda(items) {
+  const d = el('div', { className: 'leyenda' });
+  for (const [nombre, variable] of items) {
+    const s = el('span', { textContent: nombre });
+    s.style.setProperty('--c', `var(${variable})`);
+    d.append(s);
+  }
+  return d;
+}
+
+function celdaGanador(razon) {
+  if (razon === undefined) return el('td', { textContent: '—' });
+  const gpu = razon >= 1;
+  return el('td', { className: gpu ? 'gana-gpu' : 'gana-cpu', textContent: gpu ? `GPU ×${razon.toFixed(1)}` : `CPU ×${(1 / razon).toFixed(1)}` });
+}
+
+// ---- Glosario: una sola fuente para los títulos de columna y la sección de ayuda ----
+const GLOSARIO = [
+  ['tamano', 'Tamaño', 'Cuánto crece el problema.', 'Parámetro que escala el problema: cantidad de elementos (vectores, Monte Carlo) o el lado N de la matriz N×N (N² elementos).'],
+  ['cpu1', 'CPU 1 hilo', 'La función original en un solo hilo.', 'Mediana de lo que tarda la función TypeScript original, ejecutada en un solo hilo de la CPU, sobre números de 64 bits (f64).'],
+  ['cpuN', 'CPU N hilos', 'El mismo trabajo repartido entre todos los hilos.', 'El mismo trabajo repartido entre todos los hilos de la CPU. Incluye el costo de repartir y juntar (mensajes entre hilos), por eso con problemas chicos puede ser más lento que 1 hilo. En matrices usa una versión por filas escrita a mano; el benchmark verifica que da un resultado idéntico al de la original.'],
+  ['gpuTotal', 'GPU total', 'Subir + ejecutar + leer, de punta a punta.', 'Lo que costaría usar la GPU para una sola pasada: subir los datos + ejecutar el kernel + leer el resultado de vuelta. No incluye compilar el shader (se paga una sola vez y se informa aparte).'],
+  ['gpuComputo', 'GPU cómputo (cronómetro)', 'Solo la ejecución, según el cronómetro interno de la GPU.', 'Tiempo que la propia GPU dice haber tardado ejecutando el kernel, medido con timestamp-query. No incluye mover datos. En algunos kernels este cronómetro subestima el tiempo real varias veces: cuando pasa, la celda se marca con ⚠.'],
+  ['gpuPared', 'GPU por lanzamiento (pared)', 'Costo real de cada lanzamiento, con reloj de pared.', 'Cuánto suma cada lanzamiento adicional del kernel sobre los mismos datos, medido con reloj de pared y sin cronómetros: es la pendiente entre pocos y muchos lanzamientos seguidos. Es la cifra más confiable del cómputo cuando difiere del cronómetro. Si no se pudieron encadenar lanzamientos (kernels lentos), se estima como espera − latencia fija. Por debajo de ~0,05 ms es ruido y no se usa para decidir.'],
+  ['ganaTotal', 'Gana el total (vs mejor CPU)', 'Quién tarda menos de punta a punta.', 'Compara GPU total contra la mejor CPU de las dos (1 hilo o N hilos) para ese tamaño. «CPU ×20» significa que la CPU es 20 veces más rápida; «GPU ×2,5», que la GPU es 2,5 veces más rápida.'],
+  ['ganaComputo', 'Gana el cómputo (vs mejor CPU)', 'Quién calcula más rápido, sin contar mover datos.', 'Compara solo el cómputo de la GPU contra la mejor CPU. Usa el valor prudente: el mayor entre el cronómetro y el tiempo de pared (cuando el de pared es fiable), para no favorecer a la GPU. Solo es relevante si los datos ya están en la GPU.'],
+  ['error', 'Error máx.', 'Qué tanto difiere el resultado de la GPU del de la CPU.', 'Mayor diferencia relativa entre el resultado de la GPU (f32, unos 7 dígitos) y el de la CPU (f64). Alrededor de 1e-7 es lo esperable por la precisión de f32; 0 significa resultados idénticos.'],
+  ['mejorCpu', 'Mejor CPU por pasada', 'La CPU más rápida de las dos para ese tamaño.', 'La menor mediana entre «CPU 1 hilo» y «CPU N hilos». Es contra la que compite la GPU, porque un programador razonable elegiría la mejor opción.'],
+  ['fijo', 'Costo fijo GPU', 'Lo que se paga una vez por tanda.', 'Parte del tiempo que no depende de cuántas veces se lanza el kernel: subir los datos, leer el resultado y sincronizar con la GPU.'],
+  ['extra', 'Cada lanzamiento extra', 'Lo que suma cada repetición.', 'Cuánto suma cada lanzamiento adicional sobre los mismos datos (pendiente del tiempo total contra k).'],
+  ['empate', 'La GPU gana el total desde', 'Cuántas pasadas hacen falta para que convenga.', 'Menor k desde el cual «subir una vez + k lanzamientos + leer una vez» supera a k pasadas de la mejor CPU. Es una estimación lineal: costo fijo ÷ (CPU por pasada − costo por lanzamiento). «nunca» significa que cada lanzamiento de la GPU ya cuesta más que una pasada de CPU.'],
+];
+const G = Object.fromEntries(GLOSARIO.map(([clave, nombre, corto, largo]) => [clave, { nombre, corto, largo }]));
+const TERMINOS = [
+  ['k', 'Cantidad de lanzamientos seguidos del kernel sobre los mismos datos (por ejemplo, los pasos de una simulación).'],
+  ['Modo amortizado', 'Se sube una vez, se lanza el kernel k veces seguidas en un solo envío y se lee una vez. La CPU hace k pasadas. Muestra desde cuándo compensa mover los datos.'],
+  ['Barra de desglose', 'Cómo se reparte el tiempo de la GPU en el mayor tamaño: subida de datos, cómputo, sincronización (esperar a la GPU más allá del cómputo) y lectura.'],
+  ['Compilación del shader', 'Lo que cuesta traducir y preparar el programa de la GPU. Se paga una sola vez y no entra en los tiempos por lanzamiento.'],
+  ['Calentamiento y repeticiones', 'Las primeras corridas se descartan (el JIT de la CPU y los drivers de la GPU todavía se están optimizando); de las siguientes se informa la mediana. Pasá el cursor por una celda para ver mínimo y máximo.'],
+  ['f32 y f64', 'La GPU calcula con números de 32 bits y la CPU de JavaScript con 64 bits. Por eso los resultados no son idénticos y se informa el error.'],
+  ['timestamp-query', 'Función de WebGPU que permite pedirle a la GPU la hora al empezar y terminar un cómputo. Es opcional y no todos los controladores la implementan con la misma exactitud.'],
+  ['Baldosas (tiling)', 'Optimización del kernel de multiplicación de matrices: cada grupo de 16×16 hilos carga un bloque de A y otro de B en memoria compartida (rápida y cercana al procesador) y lo reutiliza 16 veces, en vez de leer de la memoria global en cada operación. Se aplica solo cuando el IR es exactamente una multiplicación de matrices; si no, se usa el kernel ingenuo. La línea «Kernel de la GPU» de cada caso dice cuál se usó.'],
+  ['⚠', 'El cronómetro de la GPU y el tiempo de pared difieren 2 veces o más para ese tamaño. En esas filas, el valor de pared es el que se debe creer.'],
+];
+const th = (clave, texto) => el('th', { textContent: texto ?? G[clave].nombre, title: G[clave].corto });
+
+function renderGlosario() {
+  const dl = $('glosario');
+  for (const [, nombre, , largo] of GLOSARIO) dl.append(el('dt', { textContent: nombre }), el('dd', { textContent: largo }));
+  for (const [t, d] of TERMINOS) dl.append(el('dt', { textContent: t }), el('dd', { textContent: d }));
+}
+
+function celdaEmpate(a) {
+  if (!a) return el('td', { textContent: '—' });
+  if (a.kEmpate === null) return el('td', { className: 'gana-cpu', textContent: 'nunca: cada lanzamiento ya cuesta más que la CPU' });
+  return el('td', { className: 'gana-gpu', textContent: `k ≥ ${num(a.kEmpate)} (estimado)` });
+}
+
+// Datos residentes en la GPU: el costo de subir y leer se reparte entre k lanzamientos seguidos.
+function seccionAmortizada(t, hilos) {
+  const u = t[t.length - 1];
+  const quien = (x) => (x.cpuMulti.mediana < x.cpu.mediana ? `${hilos} hilos` : '1 hilo');
+  const filas = t.map((x) => el('tr', {}, [
+    el('td', { textContent: num(x.tam) }),
+    el('td', { textContent: `${ms(x.cpuMejorMs)} (${quien(x)})` }),
+    el('td', { textContent: ms(x.ajuste?.fijoMs) }),
+    el('td', { textContent: ms(x.ajuste?.porLanzamientoMs) }),
+    celdaEmpate(x.ajuste),
+  ]));
+  const tabla = el('table', {}, [
+    el('thead', {}, el('tr', {}, [th('tamano'), th('mejorCpu'), th('fijo'), th('extra'), th('empate')])),
+    el('tbody', {}, filas),
+  ]);
+  const series = [
+    { nombre: 'Mejor CPU (k pasadas)', color: '--cpu', puntos: u.amortizado.map((a) => ({ x: a.k, y: a.cpu })) },
+    { nombre: 'GPU (subir + k lanzamientos + leer)', color: '--gpu', puntos: u.amortizado.map((a) => ({ x: a.k, y: a.gpuTotal.mediana })) },
+  ];
+  return el('div', {}, [
+    el('h2', { textContent: 'Si los datos se quedan en la GPU', style: 'margin-top:20px;font-size:1rem' }),
+    el('div', { className: 'suave', textContent: 'Se sube una vez, se lanza el kernel k veces seguidas y se lee una vez. Es el uso típico de una GPU (por ejemplo, pasos de una simulación). La CPU hace k pasadas, con la mejor de sus dos versiones.' }),
+    leyenda([['Mejor CPU (k pasadas)', '--cpu'], ['GPU (subir + k lanzamientos + leer)', '--gpu']]),
+    u.amortizado.length > 1 ? graficoLineas(series, `Lanzamientos seguidos k — ${num(u.trabajo)} elementos (escala logarítmica)`) : el('div', { className: 'suave', textContent: 'Kernel demasiado lento para encadenar lanzamientos con seguridad.' }),
+    el('div', { className: 'tabla-caja' }, tabla),
+    el('div', { className: 'nota', textContent: 'El punto de empate es una estimación lineal (costo fijo + k × costo por lanzamiento) a partir del menor y el mayor k medidos.' }),
+  ]);
+}
+
+function tarjetaCaso(r) {
+  const t = r.tamanos;
+  const H = r.hilosCpu;
+  const series = [
+    { nombre: 'CPU 1 hilo', color: '--cpu', puntos: t.map((x) => ({ x: x.trabajo, y: x.cpu.mediana })) },
+    { nombre: `CPU ${H} hilos`, color: '--cpum', trazo: '2 3', puntos: t.map((x) => ({ x: x.trabajo, y: x.cpuMulti.mediana })) },
+    { nombre: 'GPU total', color: '--gpu', puntos: t.map((x) => ({ x: x.trabajo, y: x.gpuTotal.mediana })) },
+  ];
+  if (t.every((x) => x.gpuCompute)) series.push({ nombre: 'GPU solo cómputo', color: '--cmp', trazo: '6 4', puntos: t.map((x) => ({ x: x.trabajo, y: x.gpuCompute.mediana })) });
+
+  const rango = (e) => `mín ${ms(e.minimo)} · mediana ${ms(e.mediana)} · máx ${ms(e.maximo)} · ${e.muestras.length} muestras`;
+  const dudosos = t.filter((x) => x.divergenciaCronometro !== undefined && (x.divergenciaCronometro >= 2 || x.divergenciaCronometro <= 0.5));
+  const celdaCronometro = (x) => {
+    const dudoso = dudosos.includes(x);
+    return el('td', {
+      className: dudoso ? 'dudoso' : '',
+      textContent: x.gpuCompute ? `${dudoso ? '⚠ ' : ''}${ms(x.gpuCompute.mediana)}` : '—',
+      title: dudoso ? `El tiempo de pared por lanzamiento (${ms(x.paredPorLanzamientoMs)}) es ${x.divergenciaCronometro.toFixed(1)}× el del cronómetro.` : x.gpuCompute ? rango(x.gpuCompute) : '',
+    });
+  };
+  const cuerpo = t.map((x) => {
+    const prudente = x.computePrudenteMs ?? x.gpuCompute?.mediana;
+    return el('tr', {}, [
+      el('td', { textContent: num(x.tam) }),
+      el('td', { textContent: ms(x.cpu.mediana), title: rango(x.cpu) }),
+      el('td', { textContent: ms(x.cpuMulti.mediana), title: rango(x.cpuMulti) }),
+      el('td', { textContent: ms(x.gpuTotal.mediana), title: rango(x.gpuTotal) }),
+      celdaCronometro(x),
+      el('td', { textContent: ms(x.paredPorLanzamientoMs), title: x.ajuste ? 'Pendiente medida entre pocos y muchos lanzamientos seguidos.' : 'Estimado como espera − latencia fija: el tope de seguridad no permitió encadenar lanzamientos.' }),
+      celdaGanador(x.cpuMejorMs / x.gpuTotal.mediana),
+      celdaGanador(prudente ? x.cpuMejorMs / prudente : undefined),
+      el('td', { textContent: x.errorMax.toExponential(1) }),
+    ]);
+  });
+  const tabla = el('table', {}, [
+    el('thead', {}, el('tr', {}, [th('tamano'), th('cpu1'), th('cpuN', `CPU ${H} hilos`), th('gpuTotal'), th('gpuComputo'), th('gpuPared'), th('ganaTotal'), th('ganaComputo'), th('error')])),
+    el('tbody', {}, cuerpo),
+  ]);
+  const aviso = dudosos.length === 0 ? null : el('div', { className: 'aviso', role: 'note', textContent:
+    `⚠ En ${dudosos.length} de ${t.length} tamaños el cronómetro de la GPU (timestamp-query) y el tiempo de pared por lanzamiento difieren 2 veces o más (hasta ${Math.max(...dudosos.map((x) => Math.max(x.divergenciaCronometro, 1 / x.divergenciaCronometro))).toFixed(1)}×). ` +
+    'Para decidir quién gana el cómputo se usa el valor mayor (más prudente), así la comparación no favorece a la GPU. Desconfiá del valor absoluto de la columna «GPU cómputo (cronómetro)» en esas filas.' });
+
+  // Dónde se va el tiempo de la GPU en el tamaño más grande.
+  const u = t[t.length - 1];
+  const compute = u.gpuCompute?.mediana ?? u.espera.mediana;
+  const partes = [
+    ['Subida de datos', u.subida.mediana, '--subida'],
+    [u.gpuCompute ? 'Cómputo' : 'Cómputo + espera', compute, '--cmp'],
+    ...(u.gpuCompute ? [['Sincronización', Math.max(u.espera.mediana - compute, 0), '--sync']] : []),
+    ['Lectura de resultados', u.lectura.mediana, '--lectura'],
+  ];
+  const suma = partes.reduce((a, p) => a + p[1], 0);
+  const barra = el('div', { className: 'barra', role: 'img', 'aria-label': 'Desglose del tiempo de GPU' });
+  for (const [nombre, valor, variable] of partes) {
+    const d = el('div', { title: `${nombre}: ${ms(valor)} (${((valor / suma) * 100).toFixed(0)}%)` });
+    d.style.cssText = `width:${(valor / suma) * 100}%;background:var(${variable})`;
+    barra.append(d);
+  }
+
+  return el('section', { className: 'tarjeta' }, [
+    el('h2', { textContent: r.caso.titulo }),
+    el('div', { className: 'suave', textContent: `Kernel de la GPU: ${r.optimizaciones.length ? r.optimizaciones.join(', ') : 'ingenuo (sin optimizaciones)'}` }),
+    el('div', { className: 'suave', textContent: `Compilación del shader: ${ms(r.msCompilacion)} (una sola vez) · ${r.repeticiones} repeticiones + ${r.calentamiento} de calentamiento` }),
+    leyenda([['CPU 1 hilo', '--cpu'], [`CPU ${H} hilos`, '--cpum'], ['GPU total (subida + cómputo + lectura)', '--gpu'], ...(series.length > 3 ? [['GPU solo cómputo', '--cmp']] : [])]),
+    graficoLineas(series, 'Elementos de trabajo (escala logarítmica)'),
+    ...(aviso ? [aviso] : []),
+    el('div', { className: 'tabla-caja' }, tabla),
+    seccionAmortizada(t, r.hilosCpu),
+    el('h2', { textContent: `Dónde se va el tiempo de la GPU (${num(u.trabajo)} elementos)`, style: 'margin-top:16px;font-size:1rem' }),
+    barra,
+    leyenda(partes.map(([n, v, c]) => [`${n}: ${ms(v)}`, c])),
+  ]);
+}
+
+// ---- Arranque ----
+async function iniciar() {
+  try {
+    const [disp, casos] = await Promise.all([pedir('/api/dispositivo'), pedir('/api/casos')]);
+    const d = $('dispositivo');
+    d.textContent = '';
+    d.append(el('span', { className: `insignia ${disp.software ? 'sw' : 'hw'}`, textContent: disp.software ? 'SOFTWARE' : 'GPU real' }), ' ',
+      el('span', { textContent: `${disp.info.description} — ${disp.info.device} · timestamp-query: ${disp.timestampQuery ? 'sí' : 'no'}` }));
+    if (disp.software) {
+      $('aviso').append(el('div', { className: 'alerta', role: 'alert', textContent: 'Este adaptador está emulado en CPU: la comparación de tiempos NO es válida. Activá la GPU real (source scripts/wsl-gpu.sh) y reiniciá el servidor.' }));
+    }
+    for (const c of casos) {
+      const caja = el('input', { type: 'checkbox', checked: true, value: c.id });
+      $('casos').append(el('label', {}, [caja, c.id]));
+    }
+  } catch (e) {
+    $('estado').append(el('span', { className: 'error', textContent: e.message }));
+  }
+}
+
+// Lee el flujo del servidor (una línea JSON por evento) y devuelve el resultado final.
+async function medir(caso, parametros, alProgreso) {
+  const r = await fetch(`/api/benchmark/stream?${parametros}`, { headers: { 'X-Benchmark': '1' } });
+  if (!r.ok) throw new Error((await r.json()).error || `Error ${r.status}`);
+  const lector = r.body.pipeThrough(new TextDecoderStream()).getReader();
+  let resto = '', resultado = null;
+  for (;;) {
+    const { value, done } = await lector.read();
+    if (done) break;
+    resto += value;
+    const lineas = resto.split('\n');
+    resto = lineas.pop();
+    for (const linea of lineas.filter(Boolean)) {
+      const evento = JSON.parse(linea);
+      if (evento.tipo === 'progreso') alProgreso(evento);
+      else if (evento.tipo === 'resultado') resultado = evento.resultado;
+      else if (evento.tipo === 'cancelado') throw Object.assign(new Error('Cancelado'), { cancelado: true });
+      else if (evento.tipo === 'error') throw new Error(evento.mensaje);
+    }
+  }
+  if (!resultado) throw new Error('El servidor cerró la conexión sin enviar el resultado');
+  return resultado;
+}
+
+$('rapido').addEventListener('change', (e) => {
+  $('reps').value = e.target.checked ? 5 : 15;
+  $('calentamiento').value = e.target.checked ? 1 : 3;
+});
+
+$('cancelar').addEventListener('click', async () => {
+  $('cancelar').disabled = true;
+  $('detalle').textContent = 'Cancelando… (termina el envío que ya está en la GPU)';
+  try {
+    await fetch('/api/cancelar', { method: 'POST', headers: { 'X-Benchmark': '1' } });
+  } catch (e) {
+    $('estado').textContent = `No se pudo cancelar: ${e.message}`;
+  }
+});
+
+$('ejecutar').addEventListener('click', async () => {
+  const boton = $('ejecutar'), cancelar = $('cancelar'), estado = $('estado'), salida = $('resultados');
+  const elegidos = [...document.querySelectorAll('#casos input:checked')].map((i) => i.value);
+  if (elegidos.length === 0) { estado.textContent = 'Elegí al menos un caso.'; return; }
+  boton.disabled = true;
+  cancelar.hidden = false; cancelar.disabled = false;
+  $('avance').hidden = false;
+  salida.textContent = '';
+  estado.className = 'suave'; estado.textContent = '';
+  try {
+    for (const [i, caso] of elegidos.entries()) {
+      const q = new URLSearchParams({ caso, reps: $('reps').value || 15, calentamiento: $('calentamiento').value || 3 });
+      if ($('max').value) q.set('max', $('max').value);
+      if ($('rapido').checked) q.set('rapido', '1');
+      const resultado = await medir(caso, q, (p) => {
+        $('barra-avance').value = (i + p.fraccion) / elegidos.length;
+        $('detalle').textContent = `Caso ${i + 1} de ${elegidos.length} · ${p.mensaje}`;
+      });
+      salida.append(tarjetaCaso(resultado));
+    }
+    estado.textContent = 'Listo.';
+  } catch (e) {
+    estado.className = e.cancelado ? 'suave' : 'error';
+    estado.textContent = e.cancelado ? 'Cancelado. Los casos ya terminados quedan en pantalla.' : e.message;
+  } finally {
+    boton.disabled = false;
+    cancelar.hidden = true;
+    $('avance').hidden = true;
+  }
+});
+
+renderGlosario();
+iniciar();
+</script>
+</body>
+</html>
