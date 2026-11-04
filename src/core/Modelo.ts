@@ -14,6 +14,7 @@ export type Expr =
 
 export type Sentencia =
     | { tipo: 'asignacion'; destino: Expr; valor: Expr }
+    | { tipo: 'declaracion'; nombre: string; valor: Expr }   // let suma = 0;
     | { tipo: 'bucle'; bucle: NodoBucle }
     | { tipo: 'desconocida'; texto: string };
 

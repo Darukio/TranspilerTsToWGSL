@@ -2,6 +2,13 @@ import * as ts from 'typescript';
 import type { IGestorAST } from '../core/IGestorAST.js';
 import type { NodoBucle, Sentencia, Expr, Diagnostico, Ubicacion } from '../core/Modelo.js';
 
+const ASIGNACIONES_COMPUESTAS: Partial<Record<ts.SyntaxKind, '+' | '-' | '*' | '/'>> = {
+    [ts.SyntaxKind.PlusEqualsToken]: '+',
+    [ts.SyntaxKind.MinusEqualsToken]: '-',
+    [ts.SyntaxKind.AsteriskEqualsToken]: '*',
+    [ts.SyntaxKind.SlashEqualsToken]: '/',
+};
+
 export class TSCompilerFacade implements IGestorAST {
     private program: ts.Program | undefined;
     private contador = 0;
@@ -166,6 +173,24 @@ export class TSCompilerFacade implements IGestorAST {
                 destino: this.expr(s.expression.left, sf),
                 valor: this.expr(s.expression.right, sf),
             };
+        }
+        // let suma = 0;  (una sola declaración con inicializador)
+        if (ts.isVariableStatement(s) && s.declarationList.declarations.length === 1) {
+            const d = s.declarationList.declarations[0]!;
+            if (ts.isIdentifier(d.name) && d.initializer) {
+                return { tipo: 'declaracion', nombre: d.name.text, valor: this.expr(d.initializer, sf) };
+            }
+        }
+        // x += e, x -= e, x *= e, x /= e  se normalizan a  x = x op e
+        if (ts.isExpressionStatement(s) && ts.isBinaryExpression(s.expression)) {
+            const op = ASIGNACIONES_COMPUESTAS[s.expression.operatorToken.kind];
+            if (op) {
+                return {
+                    tipo: 'asignacion',
+                    destino: this.expr(s.expression.left, sf),
+                    valor: { tipo: 'bin', op, izq: this.expr(s.expression.left, sf), der: this.expr(s.expression.right, sf) },
+                };
+            }
         }
         return { tipo: 'desconocida', texto: s.getText(sf) };
     }
