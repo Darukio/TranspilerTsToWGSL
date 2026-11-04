@@ -16,6 +16,8 @@
   "scripts": {
     "test": "tsc && node --test \"dist/tests/*.test.js\"",
     "build": "tsc",
+    "gpu-info": "tsc && node ./dist/runtime/info.js",
+    "servidor": "tsc && node ./dist/server/main.js",
     "ts-to-wgsl": "tsc && node ./dist/cli.js"
   },
   "keywords": [],
@@ -35,6 +37,8 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
+    "@webgpu/types": "^0.1.74",
+    "webgpu": "^0.6.2",
     "zod": "^4.6.7"
   }
 }

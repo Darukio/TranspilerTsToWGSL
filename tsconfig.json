@@ -13,6 +13,7 @@
       "esnext"
     ],
     "types": [
+      "@webgpu/types",
       "node"
     ],
     // and npm install -D @types/node
