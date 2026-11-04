@@ -29,7 +29,7 @@ Un bucle candidato es un `for` contado: `for (let i = a; i < b; i++)`, también 
 ```ts
 NodoBucle { id, ubicacion, variable, inicio, limite, inclusivo, paso, cuerpo }
 Expr      = num | var | bin(+ - * /) | acceso | llamada | desconocida
-Sentencia = asignacion | bucle | desconocida
+Sentencia = asignacion | declaracion | bucle | desconocida
 ```
 
 Reglas que el middle-end da por hechas:
@@ -65,3 +65,10 @@ pnpm build && node dist/cli.js src/pruebas/vectores.ts
 ```
 
 Los casos de entrada están en `src/pruebas/`.
+
+## Novedades del contrato
+- `Sentencia` incluye `declaracion` (`let suma = 0;`). Las asignaciones compuestas (`x += e`, `-=`, `*=`, `/=`) llegan normalizadas a `x = x op e`.
+- Se admiten variables locales **declaradas dentro del bucle** (privadas de cada hilo). Escribir una variable declarada **fuera** se rechaza: sería una reducción entre hilos.
+- Bucles internos con acumuladores (multiplicación de matrices) se traducen a `var`/`set`/`for`.
+- **Inyectividad de la escritura:** el middle-end exige poder probar que dos hilos distintos nunca escriben la misma posición (ver `docs/BENCHMARK.md`). Si el frontend llega a hacer su propio análisis de dominios de iteración, funciones de acceso o condiciones de Bernstein, esta regla queda como segunda barrera.
+- Todavía **no** se admiten `if`, ternario, comparaciones, `%`, negación de variables (`-x`; usar `0 - x`) ni funciones propias.
