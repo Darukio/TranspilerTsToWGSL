@@ -61,6 +61,16 @@ Misma máquina, misma GPU (Radeon 880M), mismo código; medianas en ms. WSL: cor
 - **`calor`** (stencil de 5 puntos, doble búfer): un paso de la ecuación del calor sobre el interior de la placa. Es una tarea limitada por memoria (5 lecturas y 1 escritura por celda), así que en una GPU integrada que comparte memoria con la CPU no se espera una gran ventaja. El benchmark mide un paso; el modo amortizado repite el mismo paso sobre los mismos buffers, que cuesta lo mismo que alternar los buffers.
 - Para **simular de verdad** (varios pasos) el runtime acepta `lanzarKernel(…, { lanzamientos: pasos, intercambio: ['actual', 'siguiente'] })`: los dos buffers se turnan en cada paso y `bufferFinal(par, pasos)` dice cuál tiene el último estado. Hay tests con pasos pares e impares contra una simulación equivalente en la CPU.
 
+## Simulaciones en vivo (`/simulacion`)
+
+`pnpm servidor` también sirve http://localhost:3000/simulacion. El servidor corre los kernels transpilados en la GPU y manda un cuadro por mensaje (`/api/simulacion/stream`); la página solo dibuja.
+
+- **n cuerpos**: `calcularFuerzas` + `integrarCuerpos` (`src/pruebas/integrar.ts`), 5 pasos por cuadro. Posiciones y velocidades quedan en la GPU; solo `x` e `y` vuelven para dibujar.
+- **Calor**: `difundirCalor` con doble búfer, 8 pasos por cuadro y una fuente caliente que se mueve (se estampa en la copia de la CPU y se sube).
+- **Matmul**: `multiplicarMatricesReal` calcula `C = A·B` en cada cuadro; `B` desplaza y promedia columnas, así que `C` es la imagen `A` moviéndose y desenfocándose. `B` se arma en la CPU y se sube en cada cuadro.
+- Comparten la GPU con el benchmark: una sola corrida a la vez (409 si está ocupada). Los tiempos que muestra la página son informativos; para citar cifras se usa el benchmark.
+- Cada simulación tiene un test contra la función original en la CPU (`src/tests/simulacion.test.ts`).
+
 ## Qué escrituras se aceptan (regla de inyectividad)
 Un kernel solo se emite si se puede **probar** que dos hilos distintos nunca escriben la misma posición (`src/middleend/Inyectividad.ts`). El índice de escritura se descompone en `c₁·i₁ + c₂·i₂ + …` y los pasos deben formar una cadena de base mixta (cada paso cubre el rango del anterior: `i·N + j` con `j < N`, o `(i+1)·N + (j+1)` con `i, j < N-2`). Se siguen las variables locales que nunca se reasignan (`const c = …; a[c]`). Se rechazan, entre otras, `a[i + j]`, `a[i / 2]`, `a[i * 0]`, `a[i * N]` (N podría ser 0) y las dispersiones por datos (`a[b[i]]`). Es una condición suficiente y no necesaria: ante la duda se rechaza.
 

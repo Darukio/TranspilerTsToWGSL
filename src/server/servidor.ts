@@ -2,8 +2,11 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { CASOS, ejecutarBenchmark, type OpcionesBenchmark } from '../runtime/benchmark.js';
 import { describirDispositivo, type Dispositivo } from '../runtime/dispositivo.js';
+import { SIMULACIONES, crearSimulacion, empaquetar } from './simulacion.js';
 
 const PAGINA = new URL('../../web/index.html', import.meta.url);
+const PAGINA_SIMULACION = new URL('../../web/simulacion.html', import.meta.url);
+const CUADRO_MS = 1000 / 60; // tope de cuadros por segundo: sin él, un caso liviano ocuparía la GPU a pleno sin que se note
 
 // El servidor puede lanzar trabajo en la GPU: solo atiende a `localhost` (evita DNS rebinding) y los
 // endpoints que lanzan o cancelan trabajo exigen esta cabecera, que una página ajena no puede enviar
@@ -82,11 +85,44 @@ export function crearServidor(dispositivo: Dispositivo): Server {
         }
     }
 
+    /** Corre una simulación en la GPU y manda un cuadro por mensaje hasta que el navegador corta la conexión o se cancela. */
+    async function transmitirSimulacion(res: ServerResponse, url: URL): Promise<void> {
+        const info = SIMULACIONES.find((s) => s.id === url.searchParams.get('caso'));
+        if (!info) return json(res, 400, { error: `Caso desconocido. Disponibles: ${SIMULACIONES.map((s) => s.id).join(', ')}` });
+        const tam = entero(url.searchParams.get('n'), info.defecto, 1, Number.MAX_SAFE_INTEGER);
+        if (!info.tamanos.includes(tam)) return json(res, 400, { error: `Tamaño no permitido para ${info.id}. Disponibles: ${info.tamanos.join(', ')}` });
+        const reserva = iniciar();
+        if (!reserva) return json(res, 409, { error: 'La GPU está ocupada con otra corrida' });
+
+        const { controlador } = reserva.corrida;
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        res.on('close', () => { if (!res.writableFinished) controlador.abort(); });
+        let simulacion: Awaited<ReturnType<typeof crearSimulacion>> | undefined;
+        try {
+            simulacion = await crearSimulacion(dispositivo, info.id, tam);
+            res.write(empaquetar(simulacion.inicio));
+            while (!controlador.signal.aborted) {
+                const t0 = performance.now();
+                const cuadro = await simulacion.siguiente();
+                // contrapresión: si el navegador no alcanza a leer, se espera en vez de acumular cuadros en memoria
+                if (!res.write(empaquetar(cuadro)) && !controlador.signal.aborted) await new Promise<void>((ok) => { res.once('drain', ok); res.once('close', ok); });
+                const resto = CUADRO_MS - (performance.now() - t0);
+                if (resto > 1) await new Promise((ok) => setTimeout(ok, resto));
+            }
+        } catch (error) {
+            if (!controlador.signal.aborted) res.write(empaquetar({ meta: { tipo: 'error', mensaje: error instanceof Error ? error.message : String(error) }, payload: new Uint8Array(0) }));
+        } finally {
+            simulacion?.destruir();
+            reserva.liberar();
+            res.end();
+        }
+    }
+
     return createServer(async (req, res) => {
         try {
             if (!HOST_PERMITIDO.test(req.headers.host ?? '')) return json(res, 403, { error: 'Host no permitido' });
             const url = new URL(req.url ?? '/', 'http://localhost');
-            const lanzaTrabajo = url.pathname.startsWith('/api/benchmark') || url.pathname === '/api/cancelar';
+            const lanzaTrabajo = url.pathname.startsWith('/api/benchmark') || url.pathname.startsWith('/api/simulacion/') || url.pathname === '/api/cancelar';
             if (lanzaTrabajo && !req.headers[CABECERA]) return json(res, 403, { error: `Falta la cabecera ${CABECERA}` });
 
             if (url.pathname === '/api/cancelar') {
@@ -102,6 +138,12 @@ export function crearServidor(dispositivo: Dispositivo): Server {
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
                 return void res.end(await readFile(PAGINA));
             }
+            if (url.pathname === '/simulacion') {
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+                return void res.end(await readFile(PAGINA_SIMULACION));
+            }
+            if (url.pathname === '/api/simulaciones') return json(res, 200, SIMULACIONES);
+            if (url.pathname === '/api/simulacion/stream') return await transmitirSimulacion(res, url);
             if (url.pathname === '/api/dispositivo') {
                 return json(res, 200, {
                     descripcion: describirDispositivo(dispositivo),
