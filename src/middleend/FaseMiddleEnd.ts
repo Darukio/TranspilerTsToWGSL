@@ -3,6 +3,7 @@ import type { ContextoPipeline } from "../core/ContextoPipeline.js";
 import type { Expr as ExprFE, NodoBucle, Sentencia } from "../core/Modelo.js";
 import type { DataType, Expr, Stmt, KernelIR, AccessMode } from "../ir/ir-contract.js";
 import { probarInyectivo } from "./Inyectividad.js";
+import { crearCadenaValidacion, type ReductorValidable, type ValidacionHandler } from "./ValidacionHandler.js";
 
 class NoApto extends Error { }
 
@@ -16,10 +17,14 @@ interface Tipado { e: Expr; t: DataType }
 
 /** Convierte bucles candidatos del frontend en KernelIR, descartando los que no son paralelizables. */
 export class FaseMiddleEnd implements IFase {
+    constructor(private readonly validador: ValidacionHandler = crearCadenaValidacion()) { }
+
     ejecutar(ctx: ContextoPipeline): ContextoPipeline {
         for (const bucle of ctx.buclesCandidatos) {
             try {
-                ctx.kernels.push(new Reductor(bucle).reducir());
+                const reductor = new Reductor(bucle);
+                this.validador.ejecutar(reductor);
+                ctx.kernels.push(reductor.reducir());
                 ctx.buclesAptos.push(bucle);
             } catch (error) {
                 if (!(error instanceof NoApto)) throw error;
@@ -30,7 +35,7 @@ export class FaseMiddleEnd implements IFase {
     }
 }
 
-class Reductor {
+class Reductor implements ReductorValidable {
     private grid: { iter: string; size: ExprFE }[] = [];
     private cuerpo: Sentencia[] = [];
     private iteradores = new Set<string>();
@@ -42,13 +47,14 @@ class Reductor {
     // Definición de cada local declarada con `let/const x = expr` (null si se declara más de una vez) y las que se reasignan.
     private definiciones = new Map<string, ExprFE | null>();
     private reasignados = new Set<string>();
+    private gridConfigurado = false;
+    private cuerpoAnalizado = false;
+    private dependenciasVerificadas = false;
 
     constructor(private readonly raiz: NodoBucle) { }
 
     reducir(): KernelIR {
-        this.separarGrid();
-        this.analizar(this.cuerpo);
-        this.verificarDependencias();
+        this.validarParaParalelizar();
         const body = this.cuerpo.map(s => this.sentencia(s));
         const gridIR = this.grid.map(g => ({ iter: g.iter, size: this.coercer(this.expr(g.size, "i32"), "i32") }));
 
@@ -65,10 +71,17 @@ class Reductor {
         };
     }
 
+    validarParaParalelizar(): void {
+        this.configurarGrid();
+        this.analizarCuerpo();
+        this.verificarSinColisiones();
+    }
+
     // ---- 1. Qué bucles forman el grid de hilos ----
-    private separarGrid(): void {
+    configurarGrid(): void {
+        if (this.gridConfigurado) return;
         let actual: NodoBucle = this.raiz;
-        for (;;) {
+        for (; ;) {
             if (!this.esDimensionGrid(actual)) {
                 if (this.grid.length === 0) throw new NoApto("el bucle externo debe iterar desde 0 con paso 1");
                 break;
@@ -80,10 +93,12 @@ class Reductor {
                 continue;
             }
             this.cuerpo = actual.cuerpo;
+            this.gridConfigurado = true;
             return;
         }
         // El último candidato a dimensión no cumplía: queda como `for` interno.
         this.cuerpo = [{ tipo: "bucle", bucle: actual }];
+        this.gridConfigurado = true;
     }
 
     private esDimensionGrid(b: NodoBucle): boolean {
@@ -100,6 +115,13 @@ class Reductor {
     }
 
     // ---- 2. Análisis: sentencias soportadas, uso de buffers, variables enteras ----
+    analizarCuerpo(): void {
+        if (this.cuerpoAnalizado) return;
+        this.configurarGrid();
+        this.analizar(this.cuerpo);
+        this.cuerpoAnalizado = true;
+    }
+
     private analizar(sents: Sentencia[]): void {
         for (const s of sents) {
             if (s.tipo === "desconocida") throw new NoApto(`sentencia no soportada: ${s.texto}`);
@@ -157,7 +179,9 @@ class Reductor {
     }
 
     // ---- 3. Dependencias entre iteraciones (heurística conservadora) ----
-    private verificarDependencias(): void {
+    verificarSinColisiones(): void {
+        if (this.dependenciasVerificadas) return;
+        this.analizarCuerpo();
         const escrituras = new Map<string, string>(); // arreglo -> índice escrito
         const lecturas: { arreglo: string; indice: string }[] = [];
         const visitarExpr = (e: ExprFE): void => {
@@ -188,6 +212,7 @@ class Reductor {
             const w = escrituras.get(l.arreglo);
             if (w !== undefined && w !== l.indice) throw new NoApto(`dependencia entre iteraciones: "${l.arreglo}" se lee y escribe en índices distintos`);
         }
+        this.dependenciasVerificadas = true;
     }
 
     /** Reemplaza cada variable local que nunca se reasigna por la expresión con que se declaró (recursivamente). */
