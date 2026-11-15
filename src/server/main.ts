@@ -11,8 +11,10 @@ if (!Number.isInteger(puerto) || puerto < 0 || puerto > 65535) {
 try {
     const dispositivo = await crearDispositivo();
     const servidor = crearServidor(dispositivo);
-    // Solo la máquina local: la página puede lanzar trabajo en la GPU.
-    servidor.listen(puerto, '127.0.0.1', () => {
+    // Solo la máquina local: la página puede lanzar trabajo en la GPU. Dentro de un contenedor hay que
+    // escuchar en 0.0.0.0 (BENCHMARK_HOST); ahí el puerto se publica solo en el loopback del anfitrión.
+    const host = process.env.BENCHMARK_HOST ?? '127.0.0.1';
+    servidor.listen(puerto, host, () => {
         console.log(describirDispositivo(dispositivo));
         console.log(`Benchmark en http://localhost:${(servidor.address() as { port: number }).port}`);
     });

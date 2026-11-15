@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulaciones en la GPU</title>
+<style>
+  :root {
+    --fondo: #f6f7f9; --tarjeta: #ffffff; --texto: #1b1f24; --suave: #5b6570; --borde: #d8dde3; --gpu: #0072b2; --alerta: #b42318; --alerta-fondo: #fdeceb;
+  }
+  :root:not([data-theme="light"]) { color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --fondo: #0f1318; --tarjeta: #171c23; --texto: #e7ebf0; --suave: #9aa4af; --borde: #2b3440; --gpu: #5cb4f0; --alerta: #ff8a80; --alerta-fondo: #3a1714; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fondo); color: var(--texto); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  a { color: var(--gpu); }
+  .suave { color: var(--suave); }
+  .tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 10px; padding: 16px; margin-top: 16px; }
+  .controles { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; color: var(--suave); }
+  select { padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px; background: var(--fondo); color: var(--texto); font: inherit; }
+  button { padding: 8px 18px; border: 0; border-radius: 6px; background: var(--gpu); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button.secundario { background: transparent; color: var(--texto); border: 1px solid var(--borde); }
+  button[hidden] { display: none; }
+  #estadisticas { font-variant-numeric: tabular-nums; margin-top: 12px; display: flex; flex-wrap: wrap; gap: 4px 24px; }
+  #estadisticas b { font-weight: 600; }
+  .error { background: var(--alerta-fondo); color: var(--alerta); border: 1px solid var(--alerta); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-weight: 600; }
+  .error[hidden] { display: none; }
+  #escena { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 14px; }
+  figure { margin: 0; text-align: center; flex: 1 1 200px; max-width: 100%; }
+  figcaption { font-size: .85rem; color: var(--suave); margin-top: 4px; }
+  canvas { width: 100%; max-width: 760px; height: auto; background: #050814; border-radius: 6px; image-rendering: pixelated; }
+  canvas.suave-img { image-rendering: auto; }
+  details.explica { margin-top: 12px; border: 1px solid var(--borde); border-radius: 8px; padding: 0 14px; }
+  details.explica > summary { cursor: pointer; padding: 10px 0; font-weight: 600; color: var(--gpu); }
+  details.explica h3 { font-size: 1rem; margin: 18px 0 6px; }
+  details.explica p { margin: 6px 0; }
+  details.explica pre { background: var(--fondo); border: 1px solid var(--borde); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: .82rem; line-height: 1.45; }
+  details.explica table { border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; margin: 8px 0; }
+  details.explica td, details.explica th { border: 1px solid var(--borde); padding: 4px 10px; text-align: right; }
+  details.explica th { color: var(--suave); font-weight: 600; }
+  .vs { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 10px 0 16px; }
+  .vs > div { border: 1px solid var(--borde); border-radius: 8px; padding: 10px 12px; }
+  .vs b.cpu { color: var(--suave); } .vs b.gpu { color: var(--gpu); }
+  .fila { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; align-items: center; }
+  .caja { border: 1px solid var(--borde); border-radius: 4px; padding: 2px 8px; font-size: .78rem; font-variant-numeric: tabular-nums; }
+  .caja.gpu { background: var(--gpu); color: #fff; border-color: var(--gpu); }
+  .nota { border-left: 3px solid var(--gpu); padding: 2px 12px; margin: 10px 0; color: var(--suave); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Simulaciones en la GPU</h1>
+  <div class="suave">El cálculo corre en la GPU con el WGSL que genera el transpilador; esta página solo dibuja el resultado de cada cuadro. <a href="/">Volver al benchmark</a></div>
+
+  <section class="tarjeta">
+    <div class="controles">
+      <label>Caso <select id="caso"></select></label>
+      <label>Tamaño <select id="tam"></select></label>
+      <button id="iniciar" type="button">Iniciar</button>
+      <button id="detener" type="button" class="secundario" hidden>Detener</button>
+    </div>
+    <div id="descripcion" class="suave" style="margin-top:10px"></div>
+    <details class="explica" id="explicacion">
+      <summary>¿Cómo se calcula realmente? (paso a paso, CPU contra GPU)</summary>
+      <div id="explicacionCuerpo"></div>
+    </details>
+    <div id="error" class="error" hidden></div>
+    <div id="estadisticas" class="suave"></div>
+    <div id="escena"></div>
+  </section>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const DESCRIPCIONES = {
+  nbody: 'Cada cuerpo suma la atracción de todos los demás (O(n²)) y después se integra su movimiento; ambos pasos son kernels transpilados y las posiciones no salen de la GPU salvo para dibujarlas.',
+  calor: 'Stencil de 5 puntos con doble búfer: 8 pasos de la ecuación del calor por cuadro. Una fuente caliente se mueve por la placa; los bordes se mantienen fríos.',
+  matmul: 'En cada cuadro la GPU calcula C = A · B con la multiplicación real. B es una matriz que desplaza y promedia columnas, así que C es la imagen A moviéndose y desenfocándose.',
+};
+
+// Comparación didáctica: la CPU recorre los elementos de a uno; la GPU lanza un hilo por elemento.
+const cajas = (n, clase, prefijo) => Array.from({ length: n }, (_, i) => `<span class="caja ${clase}">${prefijo}${i}</span>`).join('');
+const CPU_VS_GPU = (unidad, n) => `
+<div class="vs">
+  <div><b class="cpu">CPU: un trabajador, uno tras otro</b>
+    <div class="fila">${cajas(n, '', unidad + '=')}<span class="caja">…</span></div>
+    <p>El bucle <code>for</code> termina el elemento 0, recién después empieza el 1, y así hasta el último. El tiempo crece con la cantidad de elementos.</p></div>
+  <div><b class="gpu">GPU: un hilo por elemento, todos a la vez</b>
+    <div class="fila">${cajas(n, 'gpu', 'hilo ')}<span class="caja gpu">…</span></div>
+    <p>El transpilador quita el <code>for</code> externo: cada hilo recibe su número <code>${unidad}</code> y calcula solo su elemento. Los hilos se reparten en los núcleos de la GPU y avanzan en paralelo.</p></div>
+</div>`;
+
+const EXPLICACIONES = {
+  nbody: () => `
+<h3>1. Qué calcula cada cuerpo</h3>
+<p>Cada cuerpo <b>i</b> se pregunta: «¿cuánto me empuja cada otro cuerpo <b>j</b>?». Suma todos esos empujones y obtiene su aceleración. Ejemplo con dos cuerpos: el 0 en (0, 0) con masa 1 y el 1 en (3, 4) con masa 0,5.</p>
+<p><b>Cómo el punto 1 modifica la trayectoria del punto 0</b> (i = 0, j = 1):</p>
+<pre>dx = x[1] - x[0] = 3        dy = y[1] - y[0] = 4        (hacia dónde queda el otro)
+d2 = dx² + dy² + suavizado = 25 + 0,01 = 25,01          (distancia al cuadrado)
+inv = 1 / (d2 · √d2) = 1 / (25,01 · 5,001) = 0,007995   (la gravedad cae con la distancia)
+ax += masa[1] · dx · inv = 0,5 · 3 · 0,007995 = 0,0120
+ay += masa[1] · dy · inv = 0,5 · 4 · 0,007995 = 0,0160</pre>
+<p>El cuerpo 0 termina con aceleración (0,0120; 0,0160): se inclina hacia el cuerpo 1. Con el mismo cálculo, el cuerpo 1 recibe (−0,0240; −0,0320): es más liviano, así que cede más hacia el 0.</p>
+<table><tr><th>i</th><th>j</th><th>dx</th><th>dy</th><th>aporta a ax</th><th>aporta a ay</th></tr>
+<tr><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>0</td><td>1</td><td>3</td><td>4</td><td>0,0120</td><td>0,0160</td></tr>
+<tr><td>1</td><td>0</td><td>−3</td><td>−4</td><td>−0,0240</td><td>−0,0320</td></tr>
+<tr><td>1</td><td>1</td><td>0</td><td>0</td><td>0</td><td>0</td></tr></table>
+<p class="suave">Cuando j = i, dx y dy valen 0 y el aporte es 0. El <code>suavizado</code> (0,01) evita dividir por cero en ese caso y que dos cuerpos muy cercanos salgan disparados.</p>
+<h3>2. De la aceleración al movimiento</h3>
+<p>Con <code>dt = 0,004</code>: primero la velocidad cambia, <code>vx += ax · dt</code> (0 + 0,0120 · 0,004 = 0,000048), y después la posición, <code>x += vx · dt</code>. Repetido miles de veces, eso dibuja la órbita. Cada cuadro hace 5 pasos así.</p>
+<h3>3. El código que se transpila</h3>
+<pre>for (let i = 0; i &lt; n; i++) {          // ← este for desaparece en la GPU
+  let fx = 0; let fy = 0;
+  for (let j = 0; j &lt; n; j++) {        // ← este queda: cada hilo recorre los n cuerpos
+    const dx = x[j]! - x[i]!;  const dy = y[j]! - y[i]!;
+    const d2 = dx*dx + dy*dy + suavizado;
+    const inv = 1 / (d2 * Math.sqrt(d2));
+    fx += masa[j]! * dx * inv;  fy += masa[j]! * dy * inv;
+  }
+  ax[i] = fx;  ay[i] = fy;                 // cada hilo escribe solo su posición i
+}</pre>
+<h3>4. CPU contra GPU</h3>
+${CPU_VS_GPU('i', 6)}
+<p>El trabajo total <b>no baja</b>: con n cuerpos siguen siendo n × n interacciones por paso (con 2.048 cuerpos, unos 4,2 millones). Lo que cambia es que la CPU las hace en fila y la GPU reparte las n filas entre sus núcleos.</p>
+<div class="nota"><b>Por qué es seguro paralelizarlo.</b> Cada hilo <i>lee</i> las posiciones de todos pero <i>escribe</i> únicamente <code>ax[i]</code> y <code>ay[i]</code>. Dos hilos nunca escriben la misma posición, así que no se pisan. Esa es la condición que el analizador verifica antes de aceptar el bucle. Además, las posiciones se quedan en la memoria de la GPU entre pasos; solo se copian a la CPU para dibujar.</div>`,
+
+  calor: () => `
+<h3>1. Qué calcula cada celda</h3>
+<p>La placa es una cuadrícula. En cada paso, cada celda se acerca al promedio de sus cuatro vecinas (arriba, abajo, izquierda, derecha): el calor fluye de lo caliente a lo frío. Ejemplo: una celda a 10 °C con vecinas a 20, 30, 40 y 50 °C y <code>alfa = 0,1</code>:</p>
+<pre>suma de vecinas = 20 + 30 + 40 + 50 = 140
+diferencia      = 140 - 4 · 10     = 100       (cuánto más caliente es el entorno)
+nuevo valor     = 10 + 0,1 · 100   = 20</pre>
+<p>La celda sube de 10 a 20 °C. Una celda más caliente que sus vecinas haría lo contrario y se enfriaría.</p>
+<h3>2. Por qué hay dos búferes</h3>
+<p>El paso lee de <code>actual</code> y escribe en <code>siguiente</code>. Si escribiera en el mismo arreglo, una celda ya actualizada contaminaría el cálculo de su vecina. Con dos búferes, todas las celdas ven la misma «foto» del paso anterior, y por eso se pueden calcular en cualquier orden, o todas a la vez. Al terminar, los búferes se intercambian. Cada cuadro hace 8 pasos.</p>
+<h3>3. El código que se transpila</h3>
+<pre>for (let i = 0; i &lt; N - 2; i++) {         // ← los dos for se vuelven gid.x y gid.y
+  for (let j = 0; j &lt; N - 2; j++) {
+    const c = (i + 1) * N + (j + 1);       // posición de la celda en el arreglo
+    siguiente[c] = actual[c]! + alfa * (actual[c - N]! + actual[c + N]!
+                 + actual[c - 1]! + actual[c + 1]! - 4 * actual[c]!);
+  }
+}</pre>
+<p>Solo se recorre el interior (de 1 a N−2): los bordes quedan fijos y fríos.</p>
+<h3>4. CPU contra GPU</h3>
+${CPU_VS_GPU('celda', 6)}
+<p>En una placa de 256 × 256 hay 65.536 celdas. La CPU las visita una por una en cada paso; la GPU lanza un hilo por celda, en una grilla 2D (<code>gid.x</code> es la fila y <code>gid.y</code> la columna).</p>
+<div class="nota"><b>Por qué es seguro.</b> Cada hilo escribe solo <code>siguiente[c]</code>, con <code>c = (i+1)·N + (j+1)</code>. El analizador demuestra que dos pares (i, j) distintos nunca dan el mismo <code>c</code> (índice inyectivo), y que <code>siguiente</code> no se lee, solo se escribe.</div>`,
+
+  matmul: () => `
+<h3>1. Qué calcula cada elemento de C</h3>
+<p>Cada elemento <code>C[i][j]</code> es el <b>producto punto</b> de la fila i de A con la columna j de B: se multiplican los elementos de a pares y se suman. Ejemplo 2 × 2:</p>
+<pre>A = | 1 2 |     B = | 5 6 |     C = A · B
+    | 3 4 |         | 7 8 |
+
+C[0][0] = 1·5 + 2·7 = 19        C[0][1] = 1·6 + 2·8 = 22
+C[1][0] = 3·5 + 4·7 = 43        C[1][1] = 3·6 + 4·8 = 50</pre>
+<table><tr><th></th><th>j = 0</th><th>j = 1</th></tr><tr><th>i = 0</th><td>19</td><td>22</td></tr><tr><th>i = 1</th><td>43</td><td>50</td></tr></table>
+<p>Para una matriz N × N, cada uno de los N² elementos necesita N multiplicaciones: N³ operaciones en total (con N = 256, unos 16,8 millones).</p>
+<h3>2. El código que se transpila</h3>
+<pre>for (let i = 0; i &lt; N; i++) {              // ← se vuelve gid.x
+  for (let j = 0; j &lt; N; j++) {            // ← se vuelve gid.y
+    let suma = 0;                          // acumulador privado de cada hilo
+    for (let k = 0; k &lt; N; k++) {          // ← este queda dentro del hilo
+      suma += A[i * N + k]! * B[k * N + j]!;
+    }
+    C[i * N + j] = suma;
+  }
+}</pre>
+<h3>3. CPU contra GPU</h3>
+${CPU_VS_GPU('(i,j)', 6)}
+<p>La CPU calcula C[0][0], después C[0][1], etc. La GPU lanza N × N hilos: cada uno hace su propio producto punto y escribe un único elemento de C. Todos leen A y B al mismo tiempo, y nadie escribe en el mismo lugar.</p>
+<div class="nota"><b>Por qué <code>suma</code> es segura.</b> Es una variable declarada <i>dentro</i> del bucle, así que cada hilo tiene la suya. Si fuera una variable compartida (por ejemplo <code>total += a[i]</code> declarada afuera), todos los hilos la escribirían a la vez, y el analizador rechaza ese caso por considerarlo una carrera de datos.</div>`,
+};
+
+// Mapa de color tipo "inferno" por tramos lineales.
+const PARADAS = [[0, 0, 4], [66, 10, 104], [147, 38, 103], [221, 81, 58], [252, 165, 10], [252, 255, 164]];
+const LUT = Array.from({ length: 256 }, (_, i) => {
+  const t = (i / 255) * (PARADAS.length - 1), k = Math.min(PARADAS.length - 2, Math.floor(t)), f = t - k;
+  return PARADAS[k].map((c, m) => Math.round(c + (PARADAS[k + 1][m] - c) * f));
+});
+
+let controlador = null;
+let fps = 0, cuentaFps = 0, tFps = performance.now();
+
+const formato = (v) => (v >= 1e9 ? `${(v / 1e9).toFixed(2)} G` : v >= 1e6 ? `${(v / 1e6).toFixed(1)} M` : `${(v / 1e3).toFixed(1)} k`);
+
+function crearLienzo(titulo, ancho, alto, suave) {
+  const fig = document.createElement('figure');
+  const canvas = document.createElement('canvas');
+  canvas.width = ancho; canvas.height = alto;
+  if (suave) canvas.className = 'suave-img';
+  const pie = document.createElement('figcaption');
+  pie.textContent = titulo;
+  fig.append(canvas, pie);
+  $('escena').append(fig);
+  return canvas.getContext('2d');
+}
+
+function pintarGris(ctx, bytes, N) {
+  const img = ctx.createImageData(N, N);
+  for (let k = 0; k < N * N; k++) {
+    const [r, g, b] = LUT[bytes[k]];
+    img.data[4 * k] = r; img.data[4 * k + 1] = g; img.data[4 * k + 2] = b; img.data[4 * k + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+// Cada caso devuelve { inicio(meta, payload), cuadro(meta, payload) }.
+const ESCENAS = {
+  nbody() {
+    const ctx = crearLienzo('Cuerpo central y disco de cuerpos livianos en órbita', 760, 760, true);
+    let radio = 4.5, n = 0;
+    return {
+      inicio(meta) { radio = meta.radioVista; n = meta.n; ctx.fillStyle = '#050814'; ctx.fillRect(0, 0, 760, 760); },
+      cuadro(meta, payload) {
+        const pos = new Float32Array(payload.slice().buffer);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(5, 8, 20, 0.28)'; // la estela de cada cuerpo se apaga de a poco
+        ctx.fillRect(0, 0, 760, 760);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = 'rgba(110, 160, 255, 0.55)';
+        const escala = 380 / radio;
+        for (let i = 1; i < n; i++) ctx.fillRect(380 + pos[i] * escala, 380 + pos[n + i] * escala, 2, 2);
+        ctx.fillStyle = '#ffd27a';
+        ctx.fillRect(378 + pos[0] * escala, 378 + pos[n] * escala, 5, 5);
+      },
+    };
+  },
+  calor() {
+    let ctx = null;
+    return {
+      inicio(meta) { ctx = crearLienzo(`Placa ${meta.N}×${meta.N} (negro = frío, amarillo = caliente)`, meta.N, meta.N, false); },
+      cuadro(meta, payload) { pintarGris(ctx, payload, Math.sqrt(payload.length)); },
+    };
+  },
+  matmul() {
+    let ctxA, ctxB, ctxC, N = 0;
+    return {
+      inicio(meta, payload) {
+        N = meta.N;
+        ctxA = crearLienzo('A (imagen fija)', N, N, false);
+        ctxB = crearLienzo('× B (cambia en cada cuadro)', N, N, false);
+        ctxC = crearLienzo('= C = A·B (calculado en la GPU)', N, N, false);
+        pintarGris(ctxA, payload, N);
+      },
+      cuadro(meta, payload) { pintarGris(ctxC, payload.subarray(0, N * N), N); pintarGris(ctxB, payload.subarray(N * N), N); },
+    };
+  },
+};
+
+function mostrarError(texto) { $('error').textContent = texto; $('error').hidden = !texto; }
+
+function detener() {
+  controlador?.abort();
+  controlador = null;
+  $('iniciar').hidden = false; $('detener').hidden = true;
+}
+
+async function iniciar() {
+  detener();
+  mostrarError('');
+  $('escena').replaceChildren();
+  $('estadisticas').textContent = 'Compilando los kernels y preparando la GPU…';
+  const caso = $('caso').value;
+  const escena = ESCENAS[caso]();
+  const mia = new AbortController();
+  controlador = mia;
+  $('iniciar').hidden = true; $('detener').hidden = false;
+  try {
+    const r = await fetch(`/api/simulacion/stream?caso=${caso}&n=${$('tam').value}`, { headers: { 'X-Benchmark': '1' }, signal: mia.signal });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `Error ${r.status}`);
+    const lector = r.body.getReader();
+    let buf = new Uint8Array(0);
+    while (true) {
+      const { value, done } = await lector.read();
+      if (done) break;
+      const nuevo = new Uint8Array(buf.length + value.length);
+      nuevo.set(buf); nuevo.set(value, buf.length);
+      buf = nuevo;
+      let ultimo = null;
+      while (buf.length >= 8) {
+        const vista = new DataView(buf.buffer, buf.byteOffset);
+        const jl = vista.getUint32(0, true), pl = vista.getUint32(4, true);
+        if (buf.length < 8 + jl + pl) break;
+        const meta = JSON.parse(new TextDecoder().decode(buf.subarray(8, 8 + jl)));
+        const payload = buf.subarray(8 + jl, 8 + jl + pl);
+        buf = buf.subarray(8 + jl + pl);
+        if (meta.tipo === 'error') throw new Error(meta.mensaje);
+        if (meta.tipo === 'cuadro') ultimo = { meta, payload }; // si llegaron varios juntos, se dibuja solo el último
+        else escena.inicio(meta, payload);
+      }
+      if (ultimo) { escena.cuadro(ultimo.meta, ultimo.payload); estadisticas(ultimo.meta); }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') mostrarError(e.message);
+  } finally {
+    if (controlador === mia) detener();
+  }
+}
+
+function estadisticas(m) {
+  cuentaFps++;
+  const ahora = performance.now();
+  if (ahora - tFps >= 500) { fps = (cuentaFps * 1000) / (ahora - tFps); cuentaFps = 0; tFps = ahora; }
+  const tasa = m.unidad === 'operaciones' ? `${((m.trabajo / m.ms) / 1e6).toFixed(1)} GFLOPS` : `${formato((m.trabajo / m.ms) * 1000)} ${m.unidad}/s`;
+  $('estadisticas').innerHTML = `<span><b>${fps.toFixed(0)}</b> cuadros/s</span><span>GPU: <b>${m.ms.toFixed(2)} ms</b> por cuadro</span><span>lectura: <b>${m.msLectura.toFixed(2)} ms</b></span><span>rendimiento del cálculo: <b>${tasa}</b></span>`;
+}
+
+async function cargarTamanos(lista) {
+  const info = lista.find((s) => s.id === $('caso').value);
+  $('tam').replaceChildren(...info.tamanos.map((t) => new Option(t.toLocaleString('es'), t, false, t === info.defecto)));
+  $('descripcion').textContent = DESCRIPCIONES[info.id];
+  $('explicacionCuerpo').innerHTML = EXPLICACIONES[info.id]();
+}
+
+(async () => {
+  const lista = await (await fetch('/api/simulaciones')).json();
+  $('caso').replaceChildren(...lista.map((s) => new Option(s.titulo, s.id)));
+  await cargarTamanos(lista);
+  $('caso').addEventListener('change', async () => { detener(); await cargarTamanos(lista); });
+  $('iniciar').addEventListener('click', iniciar);
+  $('detener').addEventListener('click', detener);
+})();
+</script>
+</body>
+</html>
