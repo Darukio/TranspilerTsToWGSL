@@ -48,7 +48,7 @@ export function crearServidor(dispositivo: Dispositivo): Server {
     /** Reserva la GPU para una corrida; devuelve undefined si ya hay otra en curso. */
     function iniciar(): { corrida: Corrida; liberar: () => void } | undefined {
         if (corrida) return undefined;
-        let liberar = () => {};
+        let liberar = () => { };
         const terminada = new Promise<void>((ok) => (liberar = ok));
         const nueva: Corrida = { controlador: new AbortController(), terminada };
         corrida = nueva;

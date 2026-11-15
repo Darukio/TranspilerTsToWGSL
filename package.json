@@ -14,10 +14,10 @@
     }
   },
   "scripts": {
-    "test": "tsc && node --test \"dist/tests/*.test.js\"",
+    "test": ". ./scripts/gpu-env.sh && tsc && node --test \"dist/tests/*.test.js\"",
     "build": "tsc",
-    "gpu-info": "tsc && node ./dist/runtime/info.js",
-    "servidor": "tsc && node ./dist/server/main.js",
+    "gpu-info": ". ./scripts/gpu-env.sh && tsc && node ./dist/runtime/info.js",
+    "servidor": ". ./scripts/gpu-env.sh && tsc && node ./dist/server/main.js",
     "ts-to-wgsl": "tsc && node ./dist/cli.js"
   },
   "keywords": [],

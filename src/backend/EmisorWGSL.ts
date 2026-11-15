@@ -14,7 +14,7 @@ export class EmisorWGSL {
   /** Optimizaciones aplicadas al último kernel emitido (para informarlas). */
   optimizaciones: string[] = [];
 
-  constructor(private readonly opciones: OpcionesEmisor = {}) {}
+  constructor(private readonly opciones: OpcionesEmisor = {}) { }
 
   emitir(kernel: KernelIR): string {
     this.optimizaciones = [];

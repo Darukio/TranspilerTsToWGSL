@@ -9,7 +9,7 @@ import type { ConfigParalelo } from './cpu-worker.js';
 export class PoolCPU {
     private vistas: Record<string, Float64Array> = {};
 
-    private constructor(private readonly workers: Worker[]) {}
+    private constructor(private readonly workers: Worker[]) { }
 
     static crear(config: ConfigParalelo, hilos: number = os.availableParallelism()): PoolCPU {
         const workers = Array.from({ length: hilos }, () => new Worker(new URL('./cpu-worker.js', import.meta.url), { workerData: config }));

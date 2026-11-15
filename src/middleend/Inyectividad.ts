@@ -63,7 +63,7 @@ const comoConstante = (p: Poli): number | undefined => {
   return undefined;
 };
 
-class NoLineal extends Error {}
+class NoLineal extends Error { }
 
 /** Convierte una expresión del frontend en un polinomio; lanza NoLineal si tiene algo que no es +, −, × entre números y variables. */
 function aPolinomio(e: Expr, variablesPermitidas: (nombre: string) => boolean): Poli {
